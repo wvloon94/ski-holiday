@@ -73,6 +73,7 @@ async function main() {
     } catch {
       continue;
     }
+    if (data.source === 'airbnb') continue; // Airbnb pages have no "Ski lifts" section
     fileData.set(file, data);
     data.results.forEach((r, idx) => {
       if (!r.skiLiftDistance && r.link) {

@@ -112,6 +112,16 @@ function computeRelevance({ pppn, freeCancellation, skiInOut, skiLiftDistanceM, 
 
 function parseScore(scoreText) {
   if (!scoreText) return { score: null, word: null, reviews: null };
+
+  // Airbnb rates out of 5 ("4.93 out of 5 (14 reviews)"); double it so it
+  // lands on the same 0-10 scale as Booking.com review scores.
+  const airbnbMatch = scoreText.match(/([\d.]+)\s+out of 5(?:.*?([\d,]+)\s+reviews?)?/i);
+  if (airbnbMatch) {
+    const score = Math.round(parseFloat(airbnbMatch[1]) * 2 * 10) / 10;
+    const reviews = airbnbMatch[2] ? parseInt(airbnbMatch[2].replace(/,/g, ''), 10) : null;
+    return { score, word: null, reviews };
+  }
+
   const lines = scoreText.split('\n').filter(Boolean);
   const score = lines[1] ? parseFloat(lines[1]) : null;
   const word = lines[2] || null;
@@ -139,6 +149,7 @@ function collectListings() {
       continue;
     }
     const weekday = weekdayName(data.checkin);
+    const source = data.source === 'airbnb' ? 'Airbnb' : 'Booking.com';
     for (const r of data.results) {
       if (!r.totalPrice) continue;
       const { score, word, reviews } = parseScore(r.scoreText);
@@ -165,6 +176,7 @@ function collectListings() {
       );
       listings.push({
         regionSlug: destSlug,
+        source,
         region: region.label,
         checkin: data.checkin,
         checkout: data.checkout,
@@ -385,7 +397,7 @@ function main() {
     <div class="card">
       <h2>Over dit overzicht</h2>
       <p class="lead">
-        Automatisch verzameld van Booking.com voor 8 grote Oostenrijkse skigebieden, voor <strong>elke</strong>
+        Automatisch verzameld van <strong>Booking.com &eacute;n Airbnb</strong> voor 8 grote Oostenrijkse skigebieden, voor <strong>elke</strong>
         woensdag/donderdag/vrijdag/zaterdag-vertrekweek binnen 21 jan &ndash; 2 mrt 2027 (altijd 5 nachten, zo dat er
         minimaal een heel weekend in de reis zit), 12 personen, tot 12 opties per zoekopdracht, gesorteerd op
         relevantie. In totaal <strong id="total-count">&hellip;</strong> gescrapete opties. Gebruik de filters om
@@ -409,6 +421,12 @@ function main() {
         reis- en annuleringsverzekering, en toeristenbelasting (die staat soms wel/niet al in de Booking.com-prijs
         &mdash; check dat bij de listing zelf).
         <br><br>
+        <strong>Airbnb-kanttekeningen:</strong> reviewscores zijn daar uit 5 en zijn verdubbeld naar dezelfde
+        0-10-schaal; maaltijden zijn er nooit inbegrepen (zelf koken kan uiteraard wel, maar voor de eerlijke
+        vergelijking rekenen we dezelfde &euro;15/&euro;30 pp); afstand tot de skilift toont Airbnb niet in
+        zoekresultaten (telt neutraal mee in de score) en de plaatsnaam in de kolom &ldquo;Centrum&rdquo; is het
+        dorp van de listing &mdash; Airbnb zoekt ruim en toont ook omliggende dorpen, check de kaart!
+        <br><br>
         <strong>Relevantiescore (0-100)</strong> weegt: prijs 25pt + grootte skigebied 20pt (jullie twee
         hoofdprioriteiten), gratis annuleren 20pt + afstand tot lift 15pt (de harde eisen), hoogte van het
         skigebied 10pt (hoe hoger het gebied, hoe sneeuwzekerder &mdash; gemiddelde van dal- en tophoogte),
@@ -429,6 +447,13 @@ function main() {
       <div class="filters">
         <label>Zoeken
           <input type="text" id="f-search" placeholder="naam accommodatie&hellip;">
+        </label>
+        <label>Bron
+          <select id="f-source">
+            <option value="">Alle</option>
+            <option value="Booking.com">Booking.com</option>
+            <option value="Airbnb">Airbnb</option>
+          </select>
         </label>
         <label>Regio
           <select id="f-region"><option value="">Alle regio's</option>${buildRegionOptions()}</select>
@@ -465,6 +490,7 @@ function main() {
           <thead>
             <tr>
               <th data-key="relevance">Relevantie</th>
+              <th data-key="source">Bron</th>
               <th data-key="region">Regio</th>
               <th data-key="maxAltitude">Hoogte</th>
               <th data-key="checkin">Periode</th>
@@ -496,6 +522,7 @@ function main() {
 
     const els = {
       search: document.getElementById('f-search'),
+      source: document.getElementById('f-source'),
       region: document.getElementById('f-region'),
       period: document.getElementById('f-period'),
       nights: document.getElementById('f-nights'),
@@ -576,7 +603,7 @@ function main() {
           (r.skiLiftDistance ? r.skiLiftDistance + ' van skilift' + (r.skiInOut ? ' (ski-in/out)' : '') + '<br>' : '') +
           (r.freeCancellation ? '&#10003; gratis annuleren<br>' : '') +
           (r.mealPlan !== 'none' ? '&#10003; ' + r.mealPlanLabel + '<br>' : '') +
-          '<a href="' + r.link + '" target="_blank" rel="noopener">Bekijk op Booking.com &rarr;</a>'
+          '<a href="' + r.link + '" target="_blank" rel="noopener">Bekijk op ' + r.source + ' &rarr;</a>'
         );
         mapMarkers.push(marker);
       }
@@ -589,6 +616,7 @@ function main() {
 
     function render() {
       const q = els.search.value.trim().toLowerCase();
+      const source = els.source.value;
       const region = els.region.value;
       const period = els.period.value;
       const nights = els.nights.value;
@@ -599,6 +627,7 @@ function main() {
 
       let rows = listings.filter((r) => {
         if (q && !r.name.toLowerCase().includes(q)) return false;
+        if (source && r.source !== source) return false;
         if (region && r.regionSlug !== region) return false;
         if (period && r.checkin !== period) return false;
         if (nights && String(r.nights) !== nights) return false;
@@ -625,6 +654,7 @@ function main() {
         const tr = document.createElement('tr');
         tr.innerHTML =
           '<td>' + relevanceCell(r.relevance) + '</td>' +
+          '<td>' + r.source + '</td>' +
           '<td>' + r.region + '</td>' +
           '<td>' + r.minAltitude + '&ndash;' + r.maxAltitude + 'm</td>' +
           '<td>' + fmtDate(r.checkin) + '&ndash;' + fmtDate(r.checkout) + '<span class="badge">' + r.weekday.slice(0,2) + '</span></td>' +
@@ -653,7 +683,7 @@ function main() {
       });
     });
 
-    [els.search, els.region, els.period, els.nights, els.maxprice, els.minaltitude, els.meal, els.cancel].forEach((el) =>
+    [els.search, els.source, els.region, els.period, els.nights, els.maxprice, els.minaltitude, els.meal, els.cancel].forEach((el) =>
       el.addEventListener('input', render)
     );
 
