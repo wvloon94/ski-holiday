@@ -1,0 +1,9 @@
+{
+  "name": "ski-holiday-scrapers",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Reusable Playwright scrapers for Booking.com / Airbnb group-accommodation search, used to build the ski trip options overview.",
+  "dependencies": {
+    "playwright-core": "1.56.0"
+  }
+}

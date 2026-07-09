@@ -1,0 +1,5 @@
+node_modules/
+tools/playwright/results/*.json
+tools/playwright/results/*.log
+tools/playwright/*.err
+tools/playwright/preview.html
