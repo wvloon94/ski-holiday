@@ -28,6 +28,22 @@ function parseLiftDistanceM(skiLiftDistance) {
   return m[2].toLowerCase() === 'km' ? Math.round(num * 1000) : Math.round(num);
 }
 
+// ISO-8601 weeknummer (week met de eerste donderdag van het jaar is week 1).
+function isoWeek(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const day = (d.getUTCDay() + 6) % 7; // maandag = 0 .. zondag = 6
+  d.setUTCDate(d.getUTCDate() - day + 3); // naar de donderdag van deze week
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const firstDay = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDay + 3);
+  return 1 + Math.round((d - firstThursday) / (7 * 24 * 3600 * 1000));
+}
+
+// De groep heeft besloten de reis uiterlijk 4 februari 2027 te laten eindigen
+// (i.p.v. de volledige 21 jan – 2 mrt scrape-periode) — opties die later
+// eindigen worden hier weggelaten.
+const LATEST_CHECKOUT = '2027-02-04';
+
 const SLOPE_KM_RANGE = (() => {
   const vals = Object.values(regionInfo.regions).map((r) => r.slopeKm);
   return { min: Math.min(...vals), max: Math.max(...vals) };
@@ -148,7 +164,9 @@ function collectListings() {
       errors.push(`Failed to parse ${file}: ${e.message}`);
       continue;
     }
+    if (data.checkout > LATEST_CHECKOUT) continue;
     const weekday = weekdayName(data.checkin);
+    const weekNr = isoWeek(data.checkin);
     const source = data.source === 'airbnb' ? 'Airbnb' : 'Booking.com';
     for (const r of data.results) {
       if (!r.totalPrice) continue;
@@ -182,6 +200,7 @@ function collectListings() {
         checkout: data.checkout,
         nights: data.nights,
         weekday,
+        weekNr,
         name: r.name,
         totalPrice: r.totalPrice,
         pppn: r.perPersonPerNight,
@@ -256,12 +275,6 @@ function buildRegionCards() {
     </div>`
     )
     .join('\n');
-}
-
-function buildRegionOptions() {
-  return Object.entries(regionInfo.regions)
-    .map(([slug, r]) => `<option value="${esc(slug)}">${esc(r.label)}</option>`)
-    .join('');
 }
 
 function main() {
@@ -345,6 +358,64 @@ function main() {
     color: inherit;
   }
   .filters .checkbox { flex-direction: row; align-items: center; gap: .4rem; }
+  details.ms { position: relative; }
+  details.ms > summary {
+    list-style: none;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    color: #3a648c;
+    padding: .4rem .6rem;
+    border-radius: 8px;
+    border: 1px solid #b9d2ea;
+    background: white;
+    white-space: nowrap;
+  }
+  details.ms > summary::-webkit-details-marker { display: none; }
+  details.ms > summary::after { content: ' \\25be'; }
+  details.ms[open] > summary::after { content: ' \\25b4'; }
+  details.ms > summary::marker { content: ''; }
+  .ms-panel {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 4px);
+    left: 0;
+    background: white;
+    border: 1px solid #b9d2ea;
+    border-radius: 8px;
+    padding: .5rem .6rem;
+    max-height: 240px;
+    overflow-y: auto;
+    min-width: 200px;
+    box-shadow: 0 8px 20px rgba(10, 61, 122, .18);
+  }
+  .ms-panel label {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    font-weight: 400;
+    color: inherit;
+    padding: .2rem 0;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .ms-actions {
+    display: flex;
+    gap: .6rem;
+    margin-top: .3rem;
+    padding-top: .4rem;
+    border-top: 1px solid #e3edf6;
+  }
+  .ms-actions button {
+    font: inherit;
+    font-size: .74rem;
+    font-weight: 600;
+    background: none;
+    border: none;
+    color: var(--blue);
+    cursor: pointer;
+    padding: 0;
+  }
   #result-count { font-size: .85rem; color: #3a648c; margin-bottom: .5rem; }
   #map { height: 420px; border-radius: 12px; margin-top: .75rem; background: #dde8f2; }
   .leaflet-popup-content { font-size: .85rem; }
@@ -461,6 +532,9 @@ function main() {
     .region-card h3 { color: #8fc0f5; }
     .stat-label { color: #6ea3d6; }
     .filters input, .filters select { background: #0f2032; border-color: #22384f; color: #dce7f2; }
+    details.ms > summary { background: #0f2032; border-color: #22384f; color: #8fc0f5; }
+    .ms-panel { background: #0f2032; border-color: #22384f; box-shadow: none; }
+    .ms-actions { border-top: 1px solid #22384f; }
     thead th { background: #0a3d7a; }
     thead th:hover { background: #0e4a94; }
     tbody td { border-bottom: 1px solid #22384f; }
@@ -479,7 +553,7 @@ function main() {
 <body>
   <header>
     <h1>&#127956; Ski Holiday 2027 &mdash; Opties</h1>
-    <p>21 januari &ndash; 2 maart 2027 &middot; 10-14 personen &middot; 4 skidagen &middot; Oostenrijk</p>
+    <p>21 januari &ndash; 4 februari 2027 &middot; 10-14 personen &middot; 4 skidagen &middot; Oostenrijk</p>
   </header>
 
   <main>
@@ -487,7 +561,7 @@ function main() {
       <h2>Over dit overzicht</h2>
       <p class="lead">
         Automatisch verzameld van <strong>Booking.com &eacute;n Airbnb</strong> voor 8 grote Oostenrijkse skigebieden, voor <strong>elke</strong>
-        woensdag/donderdag/vrijdag/zaterdag-vertrekweek binnen 21 jan &ndash; 2 mrt 2027 (altijd 5 nachten, zo dat er
+        woensdag/donderdag/vrijdag/zaterdag-vertrekweek binnen 21 jan &ndash; 4 feb 2027 (altijd 5 nachten, zo dat er
         minimaal een heel weekend in de reis zit), 12 personen, tot 12 opties per zoekopdracht, gesorteerd op
         relevantie. In totaal <strong id="total-count">&hellip;</strong> gescrapete opties. Gebruik de filters om
         te verkennen.
@@ -537,36 +611,22 @@ function main() {
         <label>Zoeken
           <input type="text" id="f-search" placeholder="naam accommodatie&hellip;">
         </label>
-        <label>Bron
-          <select id="f-source">
-            <option value="">Alle</option>
-            <option value="Booking.com">Booking.com</option>
-            <option value="Airbnb">Airbnb</option>
-          </select>
-        </label>
-        <label>Regio
-          <select id="f-region"><option value="">Alle regio's</option>${buildRegionOptions()}</select>
-        </label>
-        <label>Periode
-          <select id="f-period"><option value="">Alle periodes</option></select>
-        </label>
-        <label>Nachten
-          <select id="f-nights"><option value="">Alle</option><option value="4">4</option><option value="5">5</option></select>
-        </label>
+        <div id="mf-source" class="ms-wrap"></div>
+        <div id="mf-region" class="ms-wrap"></div>
+        <div id="mf-period" class="ms-wrap"></div>
+        <div id="mf-nights" class="ms-wrap"></div>
         <label>Max pp/nacht (&euro;)
           <input type="number" id="f-maxprice" placeholder="bv. 100">
         </label>
         <label>Min. tophoogte (m)
           <input type="number" id="f-minaltitude" placeholder="bv. 2000">
         </label>
-        <label>Maaltijden
-          <select id="f-meal">
-            <option value="">Alle</option>
-            <option value="none">Geen</option>
-            <option value="breakfast">Ontbijt</option>
-            <option value="half-board">Ontbijt &amp; diner</option>
-            <option value="all-inclusive">All-inclusive</option>
-          </select>
+        <div id="mf-meal" class="ms-wrap"></div>
+        <label>Max. afstand tot skilift (m)
+          <input type="number" id="f-maxlift" placeholder="bv. 500">
+        </label>
+        <label class="checkbox" style="flex-direction:row;">
+          <input type="checkbox" id="f-skiinout"> Alleen ski-in/out
         </label>
         <label class="checkbox" style="flex-direction:row;">
           <input type="checkbox" id="f-cancel"> Alleen gratis annuleren
@@ -585,6 +645,7 @@ function main() {
               <th data-key="region">Regio</th>
               <th data-key="maxAltitude">Hoogte</th>
               <th data-key="checkin">Periode</th>
+              <th data-key="weekNr">Week</th>
               <th data-key="nights">Nachten</th>
               <th data-key="name">Accommodatie</th>
               <th data-key="totalPrice">Totaal (groep)</th>
@@ -634,17 +695,85 @@ function main() {
 
     const els = {
       search: document.getElementById('f-search'),
-      source: document.getElementById('f-source'),
-      region: document.getElementById('f-region'),
-      period: document.getElementById('f-period'),
-      nights: document.getElementById('f-nights'),
       maxprice: document.getElementById('f-maxprice'),
       minaltitude: document.getElementById('f-minaltitude'),
-      meal: document.getElementById('f-meal'),
+      maxlift: document.getElementById('f-maxlift'),
+      skiinout: document.getElementById('f-skiinout'),
       cancel: document.getElementById('f-cancel'),
       body: document.getElementById('tbl-body'),
       count: document.getElementById('result-count'),
     };
+
+    // Generieke multi-select: een <details>-dropdown met een checkbox per
+    // optie, zodat je makkelijk meerdere regio's/periodes/etc. tegelijk kunt
+    // aanvinken (in plaats van een standaard <select> waar je ctrl-klik voor
+    // nodig hebt). Sluit vanzelf als je ergens anders klikt.
+    const openMultiSelects = [];
+    function createMultiSelect(containerId, label, options) {
+      const container = document.getElementById(containerId);
+      const details = document.createElement('details');
+      details.className = 'ms';
+      const summary = document.createElement('summary');
+      details.appendChild(summary);
+      const panel = document.createElement('div');
+      panel.className = 'ms-panel';
+      const boxes = [];
+      options.forEach((opt) => {
+        const lab = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = opt.value;
+        cb.addEventListener('change', () => { updateSummary(); render(); });
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(opt.label));
+        panel.appendChild(lab);
+        boxes.push(cb);
+      });
+      const actions = document.createElement('div');
+      actions.className = 'ms-actions';
+      const allBtn = document.createElement('button');
+      allBtn.type = 'button';
+      allBtn.textContent = 'Alles';
+      allBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        boxes.forEach((cb) => { cb.checked = true; });
+        updateSummary();
+        render();
+      });
+      const noneBtn = document.createElement('button');
+      noneBtn.type = 'button';
+      noneBtn.textContent = 'Geen';
+      noneBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        boxes.forEach((cb) => { cb.checked = false; });
+        updateSummary();
+        render();
+      });
+      actions.appendChild(allBtn);
+      actions.appendChild(noneBtn);
+      panel.appendChild(actions);
+      details.appendChild(panel);
+      container.appendChild(details);
+      openMultiSelects.push(details);
+
+      function updateSummary() {
+        const n = boxes.filter((cb) => cb.checked).length;
+        summary.textContent = label + (n ? ' (' + n + ')' : '');
+      }
+      updateSummary();
+
+      return {
+        getSelected: () => new Set(boxes.filter((cb) => cb.checked).map((cb) => cb.value)),
+      };
+    }
+
+    document.addEventListener('click', (e) => {
+      openMultiSelects.forEach((d) => {
+        if (d.open && !d.contains(e.target)) d.removeAttribute('open');
+      });
+    });
+
+    let msSource, msRegion, msPeriod, msNights, msMeal;
 
     // Shortlist: welke opties (per stabiel #id) iemand heeft aangevinkt, met
     // een optionele opmerking erbij. Puur client-side (localStorage) — elke
@@ -780,19 +909,42 @@ function main() {
       return 'price-bad';
     }
 
-    (function populatePeriodFilter() {
+    (function buildMultiSelects() {
+      msSource = createMultiSelect('mf-source', 'Bron', [
+        { value: 'Booking.com', label: 'Booking.com' },
+        { value: 'Airbnb', label: 'Airbnb' },
+      ]);
+
+      const regionSeen = new Map();
+      for (const r of listings) if (!regionSeen.has(r.regionSlug)) regionSeen.set(r.regionSlug, r.region);
+      const regionOpts = Array.from(regionSeen.entries())
+        .sort((a, b) => a[1].localeCompare(b[1]))
+        .map(([value, label]) => ({ value, label }));
+      msRegion = createMultiSelect('mf-region', 'Regio', regionOpts);
+
       const weekdayAbbr = { zondag: 'zo', maandag: 'ma', dinsdag: 'di', woensdag: 'wo', donderdag: 'do', vrijdag: 'vr', zaterdag: 'za' };
-      const seen = new Map();
-      for (const r of listings) {
-        if (!seen.has(r.checkin)) seen.set(r.checkin, r);
-      }
-      const periods = Array.from(seen.values()).sort((a, b) => a.checkin.localeCompare(b.checkin));
-      for (const r of periods) {
-        const opt = document.createElement('option');
-        opt.value = r.checkin;
-        opt.textContent = fmtDate(r.checkin) + '–' + fmtDate(r.checkout) + ' (' + weekdayAbbr[r.weekday] + ', ' + r.nights + 'n)';
-        els.period.appendChild(opt);
-      }
+      const periodSeen = new Map();
+      for (const r of listings) if (!periodSeen.has(r.checkin)) periodSeen.set(r.checkin, r);
+      const periodOpts = Array.from(periodSeen.values())
+        .sort((a, b) => a.checkin.localeCompare(b.checkin))
+        .map((r) => ({
+          value: r.checkin,
+          label: 'wk' + r.weekNr + ' ' + fmtDate(r.checkin) + '–' + fmtDate(r.checkout) + ' (' + weekdayAbbr[r.weekday] + ', ' + r.nights + 'n)',
+        }));
+      msPeriod = createMultiSelect('mf-period', 'Periode', periodOpts);
+
+      const nightsOpts = Array.from(new Set(listings.map((r) => r.nights)))
+        .sort((a, b) => a - b)
+        .map((n) => ({ value: String(n), label: n + ' nachten' }));
+      msNights = createMultiSelect('mf-nights', 'Nachten', nightsOpts);
+
+      msMeal = createMultiSelect('mf-meal', 'Maaltijden', [
+        { value: 'none', label: 'Geen' },
+        { value: 'breakfast', label: 'Ontbijt' },
+        { value: 'half-board', label: 'Ontbijt & diner' },
+        { value: 'all-inclusive', label: 'All-inclusive' },
+        { value: 'other', label: 'Anders' },
+      ]);
     })();
 
     function relevanceCell(v) {
@@ -847,24 +999,28 @@ function main() {
 
     function render() {
       const q = els.search.value.trim().toLowerCase();
-      const source = els.source.value;
-      const region = els.region.value;
-      const period = els.period.value;
-      const nights = els.nights.value;
+      const sources = msSource.getSelected();
+      const regions = msRegion.getSelected();
+      const periods = msPeriod.getSelected();
+      const nightsSel = msNights.getSelected();
+      const meals = msMeal.getSelected();
       const maxprice = parseFloat(els.maxprice.value);
       const minaltitude = parseFloat(els.minaltitude.value);
-      const meal = els.meal.value;
+      const maxlift = parseFloat(els.maxlift.value);
+      const skiInOutOnly = els.skiinout.checked;
       const cancelOnly = els.cancel.checked;
 
       let rows = listings.filter((r) => {
         if (q && !r.name.toLowerCase().includes(q)) return false;
-        if (source && r.source !== source) return false;
-        if (region && r.regionSlug !== region) return false;
-        if (period && r.checkin !== period) return false;
-        if (nights && String(r.nights) !== nights) return false;
+        if (sources.size && !sources.has(r.source)) return false;
+        if (regions.size && !regions.has(r.regionSlug)) return false;
+        if (periods.size && !periods.has(r.checkin)) return false;
+        if (nightsSel.size && !nightsSel.has(String(r.nights))) return false;
         if (!isNaN(maxprice) && r.pppn > maxprice) return false;
         if (!isNaN(minaltitude) && r.maxAltitude < minaltitude) return false;
-        if (meal && r.mealPlan !== meal) return false;
+        if (meals.size && !meals.has(r.mealPlan)) return false;
+        if (skiInOutOnly && !r.skiInOut) return false;
+        if (!isNaN(maxlift) && !(r.skiInOut || (r.skiLiftDistanceM != null && r.skiLiftDistanceM <= maxlift))) return false;
         if (cancelOnly && !r.freeCancellation) return false;
         return true;
       });
@@ -892,6 +1048,7 @@ function main() {
           '<td>' + r.region + '</td>' +
           '<td>' + r.minAltitude + '&ndash;' + r.maxAltitude + 'm</td>' +
           '<td>' + fmtDate(r.checkin) + '&ndash;' + fmtDate(r.checkout) + '<span class="badge">' + r.weekday.slice(0,2) + '</span></td>' +
+          '<td>' + r.weekNr + '</td>' +
           '<td>' + r.nights + '</td>' +
           '<td class="name-cell">' + r.name + '</td>' +
           '<td>&euro;' + r.totalPrice.toLocaleString('nl-NL') + '</td>' +
@@ -917,7 +1074,7 @@ function main() {
       });
     });
 
-    [els.search, els.source, els.region, els.period, els.nights, els.maxprice, els.minaltitude, els.meal, els.cancel].forEach((el) =>
+    [els.search, els.maxprice, els.minaltitude, els.maxlift, els.skiinout, els.cancel].forEach((el) =>
       el.addEventListener('input', render)
     );
 
