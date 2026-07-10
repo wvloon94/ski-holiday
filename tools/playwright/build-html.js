@@ -208,8 +208,27 @@ function collectListings() {
     }
   }
   if (errors.length) console.error(errors.join('\n'));
+  assignStableIds(listings);
   listings.sort((a, b) => b.relevance - a.relevance);
   return listings;
+}
+
+// Elke optie krijgt een stabiel volgnummer waarmee je 'm kunt aanwijzen in een
+// WhatsApp-poll ("optie #42"). Nummers worden toegekend op een vaste
+// alfabetische sorteervolgorde (regio/naam/bron/periode) in plaats van op de
+// relevantiescore, zodat ze niet omgooien als de score-weging ooit verandert
+// — alleen een nieuwe scrape-run (toevoegen/verwijderen van opties) schuift ze op.
+function assignStableIds(listings) {
+  const ordered = [...listings].sort(
+    (a, b) =>
+      a.regionSlug.localeCompare(b.regionSlug) ||
+      a.name.localeCompare(b.name) ||
+      a.source.localeCompare(b.source) ||
+      a.checkin.localeCompare(b.checkin)
+  );
+  ordered.forEach((r, i) => {
+    r.id = i + 1;
+  });
 }
 
 function esc(s) {
@@ -370,6 +389,71 @@ function main() {
   a.bk-link:hover { text-decoration: underline; }
   footer { text-align: center; padding: 2rem; font-size: .85rem; color: #6b859c; }
   .disclaimer { font-size: .78rem; color: #5c7a97; background: #f3f9ff; border-radius: 10px; padding: .8rem 1rem; margin-top: 1rem; }
+  .pick { display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .pick-box { width: 1.05rem; height: 1.05rem; cursor: pointer; accent-color: var(--blue); }
+  .btn {
+    font: inherit;
+    font-weight: 600;
+    padding: .55rem 1.1rem;
+    border-radius: 8px;
+    border: none;
+    background: var(--blue);
+    color: white;
+    cursor: pointer;
+  }
+  .btn:hover { background: #155ab5; }
+  .btn.secondary { background: #dff0ff; color: #0a3d7a; }
+  .btn.secondary:hover { background: #c8e4ff; }
+  #shortlist-name {
+    font: inherit;
+    padding: .5rem .7rem;
+    border-radius: 8px;
+    border: 1px solid #b9d2ea;
+    background: white;
+    color: inherit;
+  }
+  .shortlist-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .6rem;
+    padding: .6rem 0;
+    border-bottom: 1px solid #e3edf6;
+    font-size: .85rem;
+  }
+  .shortlist-item:last-child { border-bottom: none; }
+  .shortlist-item .sl-info { flex: 1 1 260px; min-width: 220px; }
+  .shortlist-item .sl-info b { color: #0a3d7a; }
+  .shortlist-comment {
+    flex: 1 1 220px;
+    font: inherit;
+    padding: .4rem .6rem;
+    border-radius: 8px;
+    border: 1px solid #b9d2ea;
+    background: white;
+    color: inherit;
+  }
+  .shortlist-remove {
+    background: none;
+    border: none;
+    color: var(--bad);
+    font-size: 1.1rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: .2rem .4rem;
+  }
+  #shortlist-output {
+    width: 100%;
+    min-height: 9rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .8rem;
+    border-radius: 8px;
+    border: 1px solid #b9d2ea;
+    padding: .6rem .75rem;
+    color: inherit;
+    background: var(--ice);
+  }
+  #copy-feedback { font-size: .85rem; color: var(--good); font-weight: 600; }
   @media (prefers-color-scheme: dark) {
     body { background: linear-gradient(180deg, #0b1622, #0b1622); color: #dce7f2; }
     .card { background: #142334; box-shadow: none; border: 1px solid #22384f; }
@@ -384,6 +468,11 @@ function main() {
     .badge { background: #16324a; color: #8fc0f5; }
     .disclaimer { background: #0f2032; color: #8aa8c4; }
     footer { color: #6b859c; }
+    .btn.secondary { background: #16324a; color: #8fc0f5; }
+    .btn.secondary:hover { background: #1c3f5e; }
+    #shortlist-name, .shortlist-comment, #shortlist-output { background: #0f2032; border-color: #22384f; color: #dce7f2; }
+    .shortlist-item { border-bottom: 1px solid #22384f; }
+    .shortlist-item .sl-info b { color: #8fc0f5; }
   }
 </style>
 </head>
@@ -489,6 +578,8 @@ function main() {
         <table id="tbl">
           <thead>
             <tr>
+              <th>Kies</th>
+              <th data-key="id">#</th>
               <th data-key="relevance">Relevantie</th>
               <th data-key="source">Bron</th>
               <th data-key="region">Regio</th>
@@ -510,6 +601,27 @@ function main() {
           <tbody id="tbl-body"></tbody>
         </table>
       </div>
+    </div>
+
+    <div class="card" id="shortlist-card">
+      <h2>Mijn shortlist</h2>
+      <p class="lead">
+        Vink in de kolom &ldquo;Kies&rdquo; hierboven de opties aan die jij leuk vindt. Ze verschijnen dan
+        hieronder, waar je per optie een opmerking kunt typen. Klik daarna op &ldquo;Genereer tekst&rdquo; om een
+        kopieerbaar berichtje te maken voor de groepsapp &mdash; zo kan iedereen zijn eigen shortlist insturen en
+        stellen we er samen een top-lijst van samen. Je selectie blijft bewaard in je browser (alleen op dit
+        apparaat).
+      </p>
+      <div id="shortlist-empty" style="font-size:.9rem;color:#5c7a97;">Nog geen opties geselecteerd.</div>
+      <div id="shortlist-list"></div>
+      <div style="display:flex; gap:.75rem; margin-top:1rem; flex-wrap:wrap; align-items:center;">
+        <input type="text" id="shortlist-name" placeholder="Jouw naam (optioneel)">
+        <button class="btn" id="btn-generate">Genereer tekst</button>
+        <button class="btn secondary" id="btn-copy" style="display:none;">Kopieer</button>
+        <button class="btn secondary" id="btn-clear">Wis selectie</button>
+        <span id="copy-feedback"></span>
+      </div>
+      <textarea id="shortlist-output" style="display:none; margin-top:.75rem;" readonly></textarea>
     </div>
   </main>
 
@@ -533,6 +645,125 @@ function main() {
       body: document.getElementById('tbl-body'),
       count: document.getElementById('result-count'),
     };
+
+    // Shortlist: welke opties (per stabiel #id) iemand heeft aangevinkt, met
+    // een optionele opmerking erbij. Puur client-side (localStorage) — elke
+    // deelnemer maakt zo zijn eigen shortlist op zijn eigen apparaat en kan
+    // die als tekst kopiëren om in de groepsapp te plakken.
+    const LISTINGS_BY_ID = new Map(listings.map((r) => [r.id, r]));
+    const SHORTLIST_KEY = 'ski-holiday-2027-shortlist';
+    let shortlist = new Map(); // id -> comment
+    try {
+      const saved = JSON.parse(localStorage.getItem(SHORTLIST_KEY) || '[]');
+      shortlist = new Map(saved.filter(([id]) => LISTINGS_BY_ID.has(id)));
+    } catch {}
+
+    function saveShortlist() {
+      localStorage.setItem(SHORTLIST_KEY, JSON.stringify(Array.from(shortlist.entries())));
+    }
+
+    function renderShortlist() {
+      const listEl = document.getElementById('shortlist-list');
+      const emptyEl = document.getElementById('shortlist-empty');
+      const ids = Array.from(shortlist.keys()).sort((a, b) => a - b);
+      emptyEl.style.display = ids.length ? 'none' : '';
+      listEl.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      for (const id of ids) {
+        const r = LISTINGS_BY_ID.get(id);
+        if (!r) continue;
+        const div = document.createElement('div');
+        div.className = 'shortlist-item';
+        div.innerHTML =
+          '<div class="sl-info"><b>#' + id + '</b> ' + r.name + ' &middot; ' + r.region + ' &middot; ' +
+          fmtDate(r.checkin) + '&ndash;' + fmtDate(r.checkout) + ' &middot; &euro;' + r.pppn.toFixed(2) + ' pp/nacht &middot; ' +
+          '<a class="bk-link" href="' + r.link + '" target="_blank" rel="noopener">bekijk</a></div>' +
+          '<input type="text" class="shortlist-comment" data-id="' + id + '" placeholder="opmerking (optioneel)" value="' +
+          (shortlist.get(id) || '').replace(/"/g, '&quot;') + '">' +
+          '<button class="shortlist-remove" data-id="' + id + '" title="Verwijderen">&times;</button>';
+        frag.appendChild(div);
+      }
+      listEl.appendChild(frag);
+      document.getElementById('btn-copy').style.display = 'none';
+      document.getElementById('shortlist-output').style.display = 'none';
+      document.getElementById('copy-feedback').textContent = '';
+    }
+
+    function toggleShortlist(id, on) {
+      if (on) { if (!shortlist.has(id)) shortlist.set(id, ''); }
+      else { shortlist.delete(id); }
+      saveShortlist();
+      renderShortlist();
+    }
+
+    document.getElementById('tbl-body').addEventListener('change', (e) => {
+      if (e.target.classList.contains('pick-box')) {
+        toggleShortlist(parseInt(e.target.dataset.id, 10), e.target.checked);
+      }
+    });
+
+    document.getElementById('shortlist-list').addEventListener('input', (e) => {
+      if (e.target.classList.contains('shortlist-comment')) {
+        const id = parseInt(e.target.dataset.id, 10);
+        if (shortlist.has(id)) { shortlist.set(id, e.target.value); saveShortlist(); }
+      }
+    });
+
+    document.getElementById('shortlist-list').addEventListener('click', (e) => {
+      if (e.target.classList.contains('shortlist-remove')) {
+        const id = parseInt(e.target.dataset.id, 10);
+        toggleShortlist(id, false);
+        const box = document.querySelector('.pick-box[data-id="' + id + '"]');
+        if (box) box.checked = false;
+      }
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      if (!shortlist.size) return;
+      if (!confirm('Weet je zeker dat je je hele shortlist wilt wissen?')) return;
+      shortlist.clear();
+      saveShortlist();
+      renderShortlist();
+      render();
+    });
+
+    document.getElementById('btn-generate').addEventListener('click', () => {
+      const ids = Array.from(shortlist.keys()).sort((a, b) => a - b);
+      const nameEl = document.getElementById('shortlist-name');
+      const name = nameEl.value.trim();
+      const lines = [];
+      lines.push('Ski holiday shortlist' + (name ? ' — ' + name : '') + ' (' + ids.length + ' optie' + (ids.length === 1 ? '' : 's') + '):');
+      lines.push('');
+      for (const id of ids) {
+        const r = LISTINGS_BY_ID.get(id);
+        if (!r) continue;
+        const comment = (shortlist.get(id) || '').trim();
+        lines.push(
+          '#' + id + ' ' + r.name + ' (' + r.region + ', ' + fmtDate(r.checkin) + '–' + fmtDate(r.checkout) +
+          ', ' + r.nights + 'n, ' + r.source + ') — €' + r.pppn.toFixed(2) + ' pp/nacht'
+        );
+        if (comment) lines.push('   → ' + comment);
+      }
+      if (!ids.length) lines.push('(nog geen opties geselecteerd)');
+      const output = document.getElementById('shortlist-output');
+      output.value = lines.join('\\n');
+      output.style.display = '';
+      document.getElementById('btn-copy').style.display = '';
+      document.getElementById('copy-feedback').textContent = '';
+    });
+
+    document.getElementById('btn-copy').addEventListener('click', async () => {
+      const output = document.getElementById('shortlist-output');
+      const feedback = document.getElementById('copy-feedback');
+      try {
+        await navigator.clipboard.writeText(output.value);
+      } catch {
+        output.select();
+        document.execCommand('copy');
+      }
+      feedback.textContent = 'Gekopieerd!';
+      setTimeout(() => { feedback.textContent = ''; }, 2500);
+    });
 
     let sortKey = 'relevance';
     let sortDir = -1; // relevance: hoogste eerst
@@ -652,7 +883,10 @@ function main() {
       const frag = document.createDocumentFragment();
       for (const r of rows) {
         const tr = document.createElement('tr');
+        const checked = shortlist.has(r.id) ? ' checked' : '';
         tr.innerHTML =
+          '<td><label class="pick"><input type="checkbox" class="pick-box" data-id="' + r.id + '"' + checked + '></label></td>' +
+          '<td>#' + r.id + '</td>' +
           '<td>' + relevanceCell(r.relevance) + '</td>' +
           '<td>' + r.source + '</td>' +
           '<td>' + r.region + '</td>' +
@@ -687,6 +921,7 @@ function main() {
       el.addEventListener('input', render)
     );
 
+    renderShortlist();
     render();
   </script>
 </body>
