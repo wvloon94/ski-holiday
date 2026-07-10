@@ -94,7 +94,9 @@
   details.ms > summary::marker { content: ''; }
   .ms-panel {
     position: absolute;
-    z-index: 30;
+    /* Leaflet's own panes/controls go up to z-index 1000, so this needs to
+       clear that comfortably to stay above the map below the filter row. */
+    z-index: 5000;
     top: calc(100% + 4px);
     left: 0;
     background: white;
